@@ -4,15 +4,13 @@ A mobile-first PWA that replaces a paper + Excel gym routine with a tap-friendly
 
 ## Demo
 
-<video src="./demo.mp4" controls muted playsinline width="380"></video>
+https://github.com/user-attachments/assets/1a0dfd7b-b7cd-4c28-be82-4f5753b0a4eb
 
-> If the video doesn't play inline, [download demo.mp4](./demo.mp4).
+## Before
 
-## Before → After
+The original tracker — pen, paper, and an Excel sheet.
 
-| Before — Excel sheet | After — the app |
-|---|---|
-| ![Excel](./screenshots/excel-before.png) | ![App](./screenshots/01-home.png) |
+<img src="./screenshots/excel-before.png" alt="Excel sheet" width="320" />
 
 ## Situation
 
@@ -42,11 +40,6 @@ Designed and built a React PWA with a three-layer data model — Library → Wor
 
 **Next:** per-exercise demo videos — users will record their own form clips and play them inline in the set editor.
 
-## Screens
-
-| Workout detail | Select exercises | Set editor | Week plans |
-|---|---|---|---|
-| ![Workout Detail](./screenshots/02-workout-detail.png) | ![Select](./screenshots/03-select-exercises.png) | ![Set Editor](./screenshots/04-set-editor.png) | ![Week Plans](./screenshots/05-week-plans.png) |
 
 ## Run locally
 
