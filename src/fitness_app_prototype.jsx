@@ -1,5 +1,8 @@
-import { useState, useMemo } from 'react';
-import { X, Plus, Search, ChevronDown, ChevronRight, Minus, Check, ArrowLeft, MoreHorizontal, Play, Trash2, Bell } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { X, Plus, Search, ChevronDown, ChevronRight, Minus, Check, ArrowLeft, MoreHorizontal, Play, Trash2, Bell, GripVertical, Calendar, CalendarCheck, Copy, Dumbbell, CalendarDays } from 'lucide-react';
+import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // ========================================================================
 // DATA — 82 egzersizlik kütüphane (kullanıcının Excel'inden birebir)
@@ -314,12 +317,34 @@ const IconBtn = ({ icon: Icon, onClick, className = '' }) => (
   </button>
 );
 
-const PrimaryBtn = ({ children, onClick, className = '' }) => (
-  <button onClick={onClick}
-    className={`w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-display text-lg tracking-widest tap-scale ${className}`}>
+const PrimaryBtn = ({ children, onClick, className = '', disabled = false }) => (
+  <button onClick={onClick} disabled={disabled}
+    className={`w-full py-4 rounded-2xl text-white font-display text-lg tracking-widest tap-scale ${disabled ? 'bg-zinc-800 text-zinc-500 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-500'} ${className}`}>
     {children}
   </button>
 );
+
+const TabBar = ({ active, onNav }) => {
+  const tabs = [
+    { id: 'home', label: 'WORKOUTS', icon: Dumbbell },
+    { id: 'plans', label: 'PLANS', icon: CalendarDays },
+  ];
+  return (
+    <div className="flex border-t border-zinc-900 bg-black">
+      {tabs.map(t => {
+        const Icon = t.icon;
+        const isActive = active === t.id;
+        return (
+          <button key={t.id} onClick={() => onNav(t.id)}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-2.5 tap-scale ${isActive ? 'text-yellow-400' : 'text-zinc-500'}`}>
+            <Icon className="w-5 h-5" strokeWidth={isActive ? 2.5 : 2} />
+            <span className="font-display text-[10px] tracking-widest">{t.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 const Stepper = ({ value, onDec, onInc, unit, label }) => (
   <div className="flex-1 flex flex-col items-center gap-1">
@@ -342,7 +367,7 @@ const Stepper = ({ value, onDec, onInc, unit, label }) => (
 // SCREEN 1: HOME — workout listesi
 // ========================================================================
 
-const HomeScreen = ({ workouts, onNew, onOpen, onDelete }) => {
+const HomeScreen = ({ workouts, onNew, onOpen, onDelete, onDuplicate }) => {
   const [search, setSearch] = useState('');
   const filtered = workouts.filter(w => w.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -392,10 +417,17 @@ const HomeScreen = ({ workouts, onNew, onOpen, onDelete }) => {
                     <div className="absolute top-3 left-3 px-2.5 py-1 bg-black/80 rounded-lg border border-zinc-800">
                       <span className="font-display text-xs tracking-wider">{estMin} MIN</span>
                     </div>
-                    <button onClick={(e) => { e.stopPropagation(); onDelete(w.id); }}
-                      className="absolute top-3 right-3 w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 tap-scale">
-                      <Trash2 className="w-3.5 h-3.5 text-zinc-400"/>
-                    </button>
+                    <div className="absolute top-3 right-3 flex gap-2">
+                      <button onClick={(e) => { e.stopPropagation(); onDuplicate(w.id); }}
+                        title="Duplicate"
+                        className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 tap-scale">
+                        <Copy className="w-3.5 h-3.5 text-zinc-400"/>
+                      </button>
+                      <button onClick={(e) => { e.stopPropagation(); onDelete(w.id); }}
+                        className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 tap-scale">
+                        <Trash2 className="w-3.5 h-3.5 text-zinc-400"/>
+                      </button>
+                    </div>
                     <div className="h-32 py-2">
                       <BodyMap selectedMuscles={muscles} interactive={false} size="sm" />
                     </div>
@@ -439,7 +471,9 @@ const NameWorkoutScreen = ({ existingCount, onCancel, onCreate }) => {
       </div>
 
       <div className="p-4">
-        <PrimaryBtn onClick={() => name.trim() && onCreate(name.trim())}>CREATE WORKOUT</PrimaryBtn>
+        <PrimaryBtn onClick={() => name.trim() && onCreate(name.trim())} disabled={!name.trim()}>
+          CREATE WORKOUT
+        </PrimaryBtn>
       </div>
     </div>
   );
@@ -449,8 +483,51 @@ const NameWorkoutScreen = ({ existingCount, onCancel, onCreate }) => {
 // SCREEN 3: WORKOUT DETAIL — egzersizler + add / edit sets
 // ========================================================================
 
-const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExercise, onRemoveExercise }) => {
-  // Auto-numbering: each muscle group gets its own sequence
+const summaryOfEx = (ex) => {
+  if (!ex.sets.length) return 'No sets';
+  const reps = ex.sets[0].reps, kg = ex.sets[0].kg;
+  const allSame = ex.sets.every(s => s.reps === reps && s.kg === kg);
+  return allSame ? `${ex.sets.length}×${reps} · ${kg}kg` : `${ex.sets.length} sets · varied`;
+};
+
+const SortableExerciseCard = ({ ex, onEdit, onRemove }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ex.instanceId });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 10 : 'auto',
+  };
+  return (
+    <div ref={setNodeRef} style={style}
+      onClick={() => onEdit(ex.instanceId)}
+      className="card-bg rounded-xl p-3.5 flex items-center gap-3 tap-scale cursor-pointer touch-none">
+      <div className="w-11 h-11 rounded-lg bg-yellow-400/10 flex items-center justify-center border border-yellow-400/20">
+        <span className="font-display text-yellow-400 text-xs tracking-wider">{ex.slotLabel}</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="font-display text-sm tracking-wider truncate">{ex.name}</div>
+        <div className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5">
+          <span className="tabular-nums">{summaryOfEx(ex)}</span>
+          <span className="text-zinc-700">·</span>
+          <span className="text-zinc-500">{ex.sets[0]?.rest || 60}s rest</span>
+        </div>
+      </div>
+      <button {...attributes} {...listeners}
+        onClick={(e) => e.stopPropagation()}
+        className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
+        aria-label="Reorder">
+        <GripVertical className="w-3.5 h-3.5 text-zinc-500"/>
+      </button>
+      <button onClick={(e) => { e.stopPropagation(); onRemove(ex.instanceId); }}
+        className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center tap-scale">
+        <X className="w-3.5 h-3.5 text-zinc-500"/>
+      </button>
+    </div>
+  );
+};
+
+const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExercise, onRemoveExercise, onReorderExercises }) => {
   const numberedExercises = useMemo(() => {
     const counters = {};
     return workout.exercises.map(ex => {
@@ -460,11 +537,19 @@ const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExe
     });
   }, [workout.exercises]);
 
-  const summaryOf = (ex) => {
-    if (!ex.sets.length) return 'No sets';
-    const reps = ex.sets[0].reps, kg = ex.sets[0].kg;
-    const allSame = ex.sets.every(s => s.reps === reps && s.kg === kg);
-    return allSame ? `${ex.sets.length}×${reps} · ${kg}kg` : `${ex.sets.length} sets · varied`;
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIdx = workout.exercises.findIndex(e => e.instanceId === active.id);
+    const newIdx = workout.exercises.findIndex(e => e.instanceId === over.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    onReorderExercises(arrayMove(workout.exercises, oldIdx, newIdx));
   };
 
   return (
@@ -502,26 +587,16 @@ const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExe
           </div>
         ) : (
           <div className="space-y-2.5">
-            {numberedExercises.map((ex, i) => (
-              <div key={ex.instanceId} onClick={() => onEditExercise(ex.instanceId)}
-                className="card-bg rounded-xl p-3.5 flex items-center gap-3 tap-scale cursor-pointer">
-                <div className="w-11 h-11 rounded-lg bg-yellow-400/10 flex items-center justify-center border border-yellow-400/20">
-                  <span className="font-display text-yellow-400 text-xs tracking-wider">{ex.slotLabel}</span>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={numberedExercises.map(e => e.instanceId)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2.5">
+                  {numberedExercises.map(ex => (
+                    <SortableExerciseCard key={ex.instanceId} ex={ex}
+                      onEdit={onEditExercise} onRemove={onRemoveExercise} />
+                  ))}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-display text-sm tracking-wider truncate">{ex.name}</div>
-                  <div className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5">
-                    <span className="tabular-nums">{summaryOf(ex)}</span>
-                    <span className="text-zinc-700">·</span>
-                    <span className="text-zinc-500">{ex.sets[0]?.rest || 60}s rest</span>
-                  </div>
-                </div>
-                <button onClick={(e) => { e.stopPropagation(); onRemoveExercise(ex.instanceId); }}
-                  className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center tap-scale">
-                  <X className="w-3.5 h-3.5 text-zinc-500"/>
-                </button>
-              </div>
-            ))}
+              </SortableContext>
+            </DndContext>
             <button onClick={onAddExercise}
               className="w-full py-3.5 rounded-xl border border-dashed border-zinc-800 text-zinc-500 font-display text-sm tracking-widest tap-scale hover:border-blue-600 hover:text-blue-400">
               + ADD EXERCISE
@@ -542,13 +617,24 @@ const SelectExercisesScreen = ({ onClose, onAddExercise, onOpenMuscle, onOpenEqu
   const [bodyweightOn, setBodyweightOn] = useState(filters.bodyweight);
 
   const filtered = useMemo(() => {
-    return LIBRARY.filter(ex => {
+    const list = LIBRARY.filter(ex => {
       if (search && !ex.name.toLowerCase().includes(search.toLowerCase())) return false;
       if (filters.muscles.length && !filters.muscles.includes(ex.muscle)) return false;
       if (filters.equipment.length && !filters.equipment.includes(ex.equipment)) return false;
       if (bodyweightOn && ex.equipment !== 'Free Weight') return false;
       return true;
     });
+    if (filters.equipment.includes('Selectorised')) {
+      return [...list].sort((a, b) => {
+        const da = a.deviceNo ?? 9999, db = b.deviceNo ?? 9999;
+        if (da !== db) return da - db;
+        return a.name.localeCompare(b.name);
+      });
+    }
+    if (bodyweightOn) {
+      return [...list].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return list;
   }, [search, filters, bodyweightOn]);
 
   const muscleLabel = filters.muscles.length === 0 ? 'Muscle Group' :
@@ -914,19 +1000,390 @@ const SetEditorScreen = ({ exercise, onClose, onSave, onDelete }) => {
 };
 
 // ========================================================================
+// SCREEN 7: PLANS — week plan list
+// ========================================================================
+
+const PlansScreen = ({ weekPlans, workoutCount, onNew, onOpen, onDelete, onGoWorkouts }) => {
+  const summaryOfPlan = (p) => {
+    const done = p.slots.filter(s => s.completedDate).length;
+    const total = p.slots.length;
+    return { done, total };
+  };
+
+  const fmtDate = (iso) => {
+    if (!iso) return null;
+    const d = new Date(iso);
+    return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+  };
+
+  return (
+    <div className="flex flex-col h-full fade-in">
+      <TopBar
+        left={<IconBtn icon={Bell} onClick={() => {}} />}
+        title="MY PLANS"
+        right={
+          <button onClick={onNew} className="w-9 h-9 rounded-full bg-blue-600 flex items-center justify-center tap-scale accent-glow">
+            <Plus className="w-4 h-4" strokeWidth={2.5}/>
+          </button>
+        }
+      />
+
+      <div className="flex-1 overflow-y-auto scrollbar-none px-4 pt-4 pb-6">
+        {weekPlans.length === 0 ? (
+          workoutCount === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-28 h-28 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center opacity-60">
+                <Dumbbell className="w-12 h-12 text-zinc-600" strokeWidth={1.5} />
+              </div>
+              <div className="font-display text-2xl mt-6 text-zinc-300">CREATE A WORKOUT FIRST</div>
+              <p className="text-sm text-zinc-500 mt-2 max-w-xs">
+                Plans are built from your workout templates. Head over to the WORKOUTS tab and create at least one.
+              </p>
+              <button onClick={onGoWorkouts}
+                className="mt-6 px-4 py-2 rounded-xl bg-yellow-400/10 border border-yellow-400/30 text-yellow-400 font-display text-sm tracking-widest tap-scale">
+                GO TO WORKOUTS
+              </button>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-16 text-center">
+              <div className="w-28 h-28 rounded-full bg-zinc-900/50 border border-zinc-800 flex items-center justify-center opacity-60">
+                <CalendarDays className="w-12 h-12 text-zinc-600" strokeWidth={1.5} />
+              </div>
+              <div className="font-display text-2xl mt-6 text-zinc-300">NO PLANS YET</div>
+              <p className="text-sm text-zinc-500 mt-2 max-w-xs">
+                Tap the <span className="text-blue-400 font-bold">+</span> button to create your first weekly plan
+              </p>
+            </div>
+          )
+        ) : (
+          <div className="space-y-3">
+            {weekPlans.map(p => {
+              const { done, total } = summaryOfPlan(p);
+              const dates = p.slots
+                .map(s => s.completedDate)
+                .filter(Boolean)
+                .map(fmtDate);
+              return (
+                <div key={p.id} onClick={() => onOpen(p.id)}
+                  className="card-bg rounded-2xl p-4 tap-scale cursor-pointer">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0">
+                      <div className="font-display text-xl tracking-wider">{p.name}</div>
+                      <div className="text-xs text-zinc-500 mt-1 tabular-nums">
+                        {total === 0 ? 'No slots yet' : `${done}/${total} done`}
+                        {dates.length > 0 && <span className="text-zinc-600"> · {dates.join(', ')}</span>}
+                      </div>
+                    </div>
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}
+                      className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center border border-zinc-800 tap-scale shrink-0">
+                      <Trash2 className="w-3.5 h-3.5 text-zinc-400"/>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ========================================================================
+// SCREEN 8: NAME WEEK PLAN — modal
+// ========================================================================
+
+const NameWeekPlanScreen = ({ existingCount, onCancel, onCreate }) => {
+  const [name, setName] = useState(`Week ${existingCount + 1}`);
+
+  return (
+    <div className="flex flex-col h-full fade-in">
+      <TopBar
+        left={<IconBtn icon={X} onClick={onCancel} />}
+        title=""
+        right={null}
+        border={false}
+      />
+      <div className="flex-1 flex flex-col items-center justify-center px-8 text-center">
+        <CalendarDays className="w-16 h-16 text-yellow-400 mb-4" strokeWidth={1.5}/>
+        <div className="text-sm text-zinc-500 font-display tracking-widest mb-4">NAME YOUR PLAN</div>
+        <input autoFocus value={name} onChange={e => setName(e.target.value)}
+          className="w-full text-center bg-transparent outline-none font-display text-3xl tracking-wider border-b border-zinc-800 pb-2 focus:border-yellow-400"/>
+        <p className="text-xs text-zinc-600 mt-3">e.g. "Week 1", "Cut Week", "Heavy Week"</p>
+      </div>
+      <div className="p-4">
+        <PrimaryBtn onClick={() => name.trim() && onCreate(name.trim())} disabled={!name.trim()}>
+          CREATE PLAN
+        </PrimaryBtn>
+      </div>
+    </div>
+  );
+};
+
+// ========================================================================
+// SCREEN 9: WEEK DETAIL — slots + date actions
+// ========================================================================
+
+const fmtDateShort = (iso) => {
+  if (!iso) return null;
+  const d = new Date(iso);
+  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+};
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+
+const SlotCard = ({ slot, slotIndex, workout, onRemove, onAssignWorkout, onSetPlannedDate, onMarkDone, onClearStatus, onOpenWorkout }) => {
+  const [editingDate, setEditingDate] = useState(false);
+
+  if (!workout) {
+    return (
+      <div className="card-bg rounded-xl p-3.5 border-dashed border-zinc-800">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-9 h-9 rounded-lg bg-zinc-900 flex items-center justify-center border border-zinc-800 shrink-0">
+              <span className="font-display text-zinc-500 text-xs">{slotIndex}</span>
+            </div>
+            <div className="text-zinc-500 text-sm italic truncate">Workout deleted</div>
+          </div>
+          <button onClick={onRemove}
+            className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center tap-scale shrink-0">
+            <X className="w-3.5 h-3.5 text-zinc-500"/>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card-bg rounded-xl p-3.5">
+      <button onClick={onOpenWorkout}
+        className="flex items-center gap-3 w-full text-left tap-scale">
+        <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/30 flex items-center justify-center shrink-0">
+          <span className="font-display text-blue-400 text-xs">{slotIndex}</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-display text-sm tracking-wider truncate">{workout.name}</div>
+          <div className="text-xs text-zinc-500 mt-0.5">
+            {workout.exercises.length} exercises
+          </div>
+        </div>
+        <span onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center tap-scale shrink-0">
+          <X className="w-3.5 h-3.5 text-zinc-500"/>
+        </span>
+      </button>
+
+      <div className="mt-3 pt-3 border-t border-zinc-900">
+        {slot.completedDate ? (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-green-400">
+              <CalendarCheck className="w-4 h-4"/>
+              <span className="text-xs font-display tracking-wider">DONE · {fmtDateShort(slot.completedDate)}</span>
+            </div>
+            <button onClick={onClearStatus}
+              className="text-[10px] text-zinc-500 tracking-wider font-display tap-scale hover:text-zinc-300">UNDO</button>
+          </div>
+        ) : slot.plannedDate ? (
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-yellow-400">
+              <Calendar className="w-4 h-4"/>
+              <span className="text-xs font-display tracking-wider">PLANNED · {fmtDateShort(slot.plannedDate)}</span>
+            </div>
+            <div className="flex gap-1.5">
+              <button onClick={onMarkDone}
+                className="px-2.5 py-1 rounded-md bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-display tracking-wider tap-scale">
+                MARK DONE
+              </button>
+              <button onClick={onClearStatus}
+                className="text-[10px] text-zinc-500 tracking-wider font-display tap-scale hover:text-zinc-300 px-1.5">CLEAR</button>
+            </div>
+          </div>
+        ) : editingDate ? (
+          <div className="flex items-center gap-2">
+            <input type="date" autoFocus
+              onChange={(e) => { if (e.target.value) { onSetPlannedDate(e.target.value); setEditingDate(false); } }}
+              className="bg-zinc-900 border border-zinc-800 rounded-md px-2 py-1 text-xs text-white outline-none focus:border-yellow-400 flex-1"/>
+            <button onClick={() => setEditingDate(false)}
+              className="text-[10px] text-zinc-500 tracking-wider font-display tap-scale px-1.5">CANCEL</button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setEditingDate(true)}
+              className="flex-1 px-2.5 py-1.5 rounded-md bg-zinc-900 border border-zinc-800 text-zinc-400 text-[10px] font-display tracking-wider tap-scale flex items-center justify-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5"/> SET DATE
+            </button>
+            <button onClick={onMarkDone}
+              className="flex-1 px-2.5 py-1.5 rounded-md bg-green-500/10 border border-green-500/30 text-green-400 text-[10px] font-display tracking-wider tap-scale flex items-center justify-center gap-1.5">
+              <Check className="w-3.5 h-3.5"/> DONE TODAY
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const WorkoutPickerModal = ({ workouts, onPick, onClose }) => (
+  <div className="absolute inset-0 bg-black/80 backdrop-blur-sm z-20 flex items-end slide-up">
+    <div className="w-full bg-zinc-950 border-t border-zinc-800 rounded-t-2xl max-h-[85%] flex flex-col">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-900">
+        <div className="font-display tracking-wider text-sm">PICK A WORKOUT</div>
+        <button onClick={onClose} className="w-8 h-8 rounded-full bg-zinc-900 flex items-center justify-center tap-scale">
+          <X className="w-4 h-4 text-zinc-400"/>
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto scrollbar-none p-3">
+        {workouts.length === 0 ? (
+          <div className="text-center py-12 text-zinc-500 text-sm">
+            No workouts yet. Create one from the WORKOUTS tab first.
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {workouts.map(w => {
+              const muscles = [...new Set(w.exercises.map(e => e.muscle))];
+              const totalSets = w.exercises.reduce((s, e) => s + e.sets.length, 0);
+              const estMin = Math.max(1, Math.round(totalSets * 1.2));
+              return (
+                <button key={w.id} onClick={() => onPick(w.id)}
+                  className="w-full card-bg rounded-2xl overflow-hidden tap-scale text-left">
+                  <div className="relative h-36 flex items-center justify-center" style={{
+                    background: 'linear-gradient(180deg, #1a1a1a 0%, #0a0a0a 100%)'
+                  }}>
+                    <div className="absolute top-3 left-3 px-2.5 py-1 bg-black/80 rounded-lg border border-zinc-800">
+                      <span className="font-display text-xs tracking-wider">{estMin} MIN</span>
+                    </div>
+                    <div className="h-28 py-2">
+                      <BodyMap selectedMuscles={muscles} interactive={false} size="sm" />
+                    </div>
+                  </div>
+                  <div className="px-4 py-2.5 border-t border-zinc-900 flex items-center justify-between">
+                    <div className="min-w-0">
+                      <div className="font-display text-lg tracking-wider truncate">{w.name}</div>
+                      <div className="text-xs text-zinc-500 mt-0.5">
+                        {w.exercises.length} exercises · {totalSets} sets
+                      </div>
+                    </div>
+                    <Plus className="w-5 h-5 text-blue-400 shrink-0" strokeWidth={2.5}/>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+const WeekDetailScreen = ({ plan, workouts, weekCount, onBack, onAddSlot, onRemoveSlot, onUpdateSlot, onOpenWorkout, onCopyToNext }) => {
+  const [picking, setPicking] = useState(false);
+  const findWorkout = (id) => workouts.find(w => w.id === id);
+
+  return (
+    <div className="flex flex-col h-full fade-in relative">
+      <TopBar
+        left={<IconBtn icon={ArrowLeft} onClick={onBack} />}
+        title={plan.name}
+        right={null}
+      />
+
+      <div className="px-4 py-3 flex items-center justify-between border-b border-zinc-900">
+        <div className="flex items-center gap-2">
+          <span className="font-display text-sm tracking-widest text-zinc-400">SLOTS</span>
+          <span className="text-blue-400 font-display text-sm">{plan.slots.length}</span>
+        </div>
+        <button onClick={() => setPicking(true)}
+          className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center tap-scale">
+          <Plus className="w-4 h-4" strokeWidth={2.5}/>
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto scrollbar-none px-4 py-4">
+        {plan.slots.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <CalendarDays className="w-20 h-20 text-zinc-700" strokeWidth={1.2}/>
+            <button onClick={() => setPicking(true)}
+              className="mt-6 flex items-center gap-2 text-blue-400 font-display text-lg tracking-widest tap-scale">
+              <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center">
+                <Plus className="w-4 h-4" strokeWidth={3}/>
+              </div>
+              ADD FIRST SLOT
+            </button>
+            <p className="text-xs text-zinc-600 mt-3 max-w-xs">
+              Add slots from your workout templates. Dates are optional.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {plan.slots.map((slot, i) => (
+              <SlotCard key={slot.slotId} slot={slot} slotIndex={i + 1}
+                workout={findWorkout(slot.workoutId)}
+                onRemove={() => onRemoveSlot(slot.slotId)}
+                onAssignWorkout={(id) => onUpdateSlot(slot.slotId, { workoutId: id })}
+                onSetPlannedDate={(date) => onUpdateSlot(slot.slotId, { plannedDate: date, completedDate: null })}
+                onMarkDone={() => onUpdateSlot(slot.slotId, { completedDate: todayISO(), plannedDate: null })}
+                onClearStatus={() => onUpdateSlot(slot.slotId, { plannedDate: null, completedDate: null })}
+                onOpenWorkout={() => onOpenWorkout(slot.workoutId)}
+              />
+            ))}
+            <button onClick={() => setPicking(true)}
+              className="w-full py-3.5 rounded-xl border border-dashed border-zinc-800 text-zinc-500 font-display text-sm tracking-widest tap-scale hover:border-blue-600 hover:text-blue-400">
+              + ADD SLOT
+            </button>
+          </div>
+        )}
+      </div>
+
+      {plan.slots.length > 0 && (
+        <div className="p-4 border-t border-zinc-900">
+          <button onClick={onCopyToNext}
+            className="w-full py-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 text-zinc-300 font-display text-sm tracking-widest tap-scale hover:bg-zinc-800 flex items-center justify-center gap-2">
+            <Copy className="w-4 h-4" /> COPY TO WEEK {weekCount + 1}
+          </button>
+        </div>
+      )}
+
+      {picking && (
+        <WorkoutPickerModal workouts={workouts}
+          onPick={(id) => { onAddSlot(id); setPicking(false); }}
+          onClose={() => setPicking(false)} />
+      )}
+    </div>
+  );
+};
+
+// ========================================================================
 // MAIN APP — state + routing
 // ========================================================================
 
+function useLocalStorage(key, initial) {
+  const [value, setValue] = useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : initial;
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  }, [key, value]);
+  return [value, setValue];
+}
+
 export default function App() {
-  const [workouts, setWorkouts] = useState([]);
+  const [workouts, setWorkouts] = useLocalStorage('fitness.workouts.v1', []);
+  const [weekPlans, setWeekPlans] = useLocalStorage('fitness.weekPlans.v1', []);
   const [screen, setScreen] = useState('home');
   const [history, setHistory] = useState([]); // for back navigation
   const [currentWorkoutId, setCurrentWorkoutId] = useState(null);
   const [currentExerciseInstanceId, setCurrentExerciseInstanceId] = useState(null);
+  const [currentWeekPlanId, setCurrentWeekPlanId] = useState(null);
   const [filters, setFilters] = useState({ muscles: [], equipment: [], bodyweight: false });
 
   const currentWorkout = workouts.find(w => w.id === currentWorkoutId);
   const currentExercise = currentWorkout?.exercises.find(e => e.instanceId === currentExerciseInstanceId);
+  const currentWeekPlan = weekPlans.find(p => p.id === currentWeekPlanId);
 
   const nav = (s) => { setHistory([...history, screen]); setScreen(s); };
   const back = () => {
@@ -936,6 +1393,11 @@ export default function App() {
   };
 
   // --- Actions ---
+  const openWorkoutFromSlot = (id) => {
+    setCurrentWorkoutId(id);
+    nav('workoutDetail');
+  };
+
   const createWorkout = (name) => {
     const w = { id: crypto.randomUUID(), name, exercises: [] };
     setWorkouts([...workouts, w]);
@@ -954,6 +1416,25 @@ export default function App() {
     if (window.confirm('Delete this workout?')) setWorkouts(workouts.filter(w => w.id !== id));
   };
 
+  const duplicateWorkout = (id) => {
+    const src = workouts.find(w => w.id === id);
+    if (!src) return;
+    const dayPrefixMatch = /^DAY\s+\d+$/i.test(src.name.trim());
+    const nextName = dayPrefixMatch
+      ? `DAY ${workouts.length + 1}`
+      : `${src.name} (COPY)`;
+    const copy = {
+      id: crypto.randomUUID(),
+      name: nextName,
+      exercises: src.exercises.map(ex => ({
+        ...ex,
+        instanceId: crypto.randomUUID(),
+        sets: ex.sets.map(s => ({ ...s })),
+      })),
+    };
+    setWorkouts([...workouts, copy]);
+  };
+
   const addExerciseToWorkout = (ex) => {
     const instance = {
       ...ex,
@@ -964,7 +1445,6 @@ export default function App() {
       ? { ...w, exercises: [...w.exercises, instance] }
       : w));
     setCurrentExerciseInstanceId(instance.instanceId);
-    setHistory(['workoutDetail']);
     setScreen('setEditor');
   };
 
@@ -973,8 +1453,7 @@ export default function App() {
       ? { ...w, exercises: w.exercises.map(e => e.instanceId === currentExerciseInstanceId
           ? { ...e, sets, position, angle } : e) }
       : w));
-    setScreen('workoutDetail');
-    setHistory([]);
+    back();
   };
 
   const removeExerciseFromWorkout = (instanceId) => {
@@ -982,6 +1461,78 @@ export default function App() {
       ? { ...w, exercises: w.exercises.filter(e => e.instanceId !== instanceId) }
       : w));
   };
+
+  const reorderExercises = (newExercises) => {
+    setWorkouts(workouts.map(w => w.id === currentWorkoutId
+      ? { ...w, exercises: newExercises.map(({ slotLabel, ...rest }) => rest) }
+      : w));
+  };
+
+  // --- Week Plan actions ---
+  const createWeekPlan = (name) => {
+    const p = { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), slots: [] };
+    setWeekPlans([...weekPlans, p]);
+    setCurrentWeekPlanId(p.id);
+    setHistory([]);
+    setScreen('weekDetail');
+  };
+
+  const openWeekPlan = (id) => {
+    setCurrentWeekPlanId(id);
+    setHistory([]);
+    setScreen('weekDetail');
+  };
+
+  const deleteWeekPlan = (id) => {
+    if (window.confirm('Delete this week plan?')) setWeekPlans(weekPlans.filter(p => p.id !== id));
+  };
+
+  const updateWeekPlan = (updater) => {
+    setWeekPlans(weekPlans.map(p => p.id === currentWeekPlanId ? updater(p) : p));
+  };
+
+  const addSlot = (workoutId) => {
+    updateWeekPlan(p => ({
+      ...p,
+      slots: [...p.slots, { slotId: crypto.randomUUID(), workoutId, plannedDate: null, completedDate: null }],
+    }));
+  };
+
+  const updateSlot = (slotId, patch) => {
+    updateWeekPlan(p => ({
+      ...p,
+      slots: p.slots.map(s => s.slotId === slotId ? { ...s, ...patch } : s),
+    }));
+  };
+
+  const removeSlot = (slotId) => {
+    updateWeekPlan(p => ({ ...p, slots: p.slots.filter(s => s.slotId !== slotId) }));
+  };
+
+  const copyWeekToNext = () => {
+    if (!currentWeekPlan) return;
+    const n = weekPlans.length + 1;
+    const copy = {
+      id: crypto.randomUUID(),
+      name: `Week ${n}`,
+      createdAt: new Date().toISOString(),
+      slots: currentWeekPlan.slots.map(s => ({
+        slotId: crypto.randomUUID(),
+        workoutId: s.workoutId,
+        plannedDate: null,
+        completedDate: null,
+      })),
+    };
+    setWeekPlans([...weekPlans, copy]);
+    setCurrentWeekPlanId(copy.id);
+  };
+
+  const switchTab = (tab) => {
+    setHistory([]);
+    setScreen(tab);
+  };
+
+  const showTabBar = screen === 'home' || screen === 'plans';
 
   // --- Render ---
   return (
@@ -991,54 +1542,82 @@ export default function App() {
         <div className="w-full md:max-w-sm md:rounded-[2.5rem] md:border md:border-zinc-800 md:shadow-2xl overflow-hidden relative"
              style={{ height: '100vh', maxHeight: '100vh' }}>
           <div className="h-full flex flex-col bg-black">
-            {screen === 'home' && (
-              <HomeScreen workouts={workouts}
-                onNew={() => nav('nameWorkout')}
-                onOpen={openWorkout}
-                onDelete={deleteWorkout} />
-            )}
-            {screen === 'nameWorkout' && (
-              <NameWorkoutScreen existingCount={workouts.length}
-                onCancel={() => setScreen('home')}
-                onCreate={createWorkout} />
-            )}
-            {screen === 'workoutDetail' && currentWorkout && (
-              <WorkoutDetailScreen workout={currentWorkout}
-                onBack={() => setScreen('home')}
-                onDone={() => setScreen('home')}
-                onAddExercise={() => { setFilters({ muscles: [], equipment: [], bodyweight: false }); nav('selectExercises'); }}
-                onEditExercise={(id) => { setCurrentExerciseInstanceId(id); nav('setEditor'); }}
-                onRemoveExercise={removeExerciseFromWorkout} />
-            )}
-            {screen === 'selectExercises' && (
-              <SelectExercisesScreen
-                filters={filters}
-                setFilters={setFilters}
-                onClose={back}
-                onAddExercise={addExerciseToWorkout}
-                onOpenMuscle={() => nav('muscleGroupPicker')}
-                onOpenEquipment={() => nav('equipmentPicker')} />
-            )}
-            {screen === 'muscleGroupPicker' && (
-              <MuscleGroupPickerScreen selected={filters.muscles}
-                onClose={back}
-                onApply={(m) => { setFilters({ ...filters, muscles: m }); back(); }} />
-            )}
-            {screen === 'equipmentPicker' && (
-              <EquipmentPickerScreen selected={filters.equipment}
-                onClose={back}
-                onApply={(e) => { setFilters({ ...filters, equipment: e }); back(); }} />
-            )}
-            {screen === 'setEditor' && currentExercise && (
-              <SetEditorScreen exercise={currentExercise}
-                onClose={back}
-                onSave={saveExerciseEdit}
-                onDelete={() => {
-                  removeExerciseFromWorkout(currentExerciseInstanceId);
-                  setScreen('workoutDetail');
-                  setHistory([]);
-                }} />
-            )}
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {screen === 'home' && (
+                <HomeScreen workouts={workouts}
+                  onNew={() => nav('nameWorkout')}
+                  onOpen={openWorkout}
+                  onDelete={deleteWorkout}
+                  onDuplicate={duplicateWorkout} />
+              )}
+              {screen === 'nameWorkout' && (
+                <NameWorkoutScreen existingCount={workouts.length}
+                  onCancel={() => setScreen('home')}
+                  onCreate={createWorkout} />
+              )}
+              {screen === 'workoutDetail' && currentWorkout && (
+                <WorkoutDetailScreen workout={currentWorkout}
+                  onBack={back}
+                  onDone={back}
+                  onAddExercise={() => { setFilters({ muscles: [], equipment: [], bodyweight: false }); nav('selectExercises'); }}
+                  onEditExercise={(id) => { setCurrentExerciseInstanceId(id); nav('setEditor'); }}
+                  onRemoveExercise={removeExerciseFromWorkout}
+                  onReorderExercises={reorderExercises} />
+              )}
+              {screen === 'selectExercises' && (
+                <SelectExercisesScreen
+                  filters={filters}
+                  setFilters={setFilters}
+                  onClose={back}
+                  onAddExercise={addExerciseToWorkout}
+                  onOpenMuscle={() => nav('muscleGroupPicker')}
+                  onOpenEquipment={() => nav('equipmentPicker')} />
+              )}
+              {screen === 'muscleGroupPicker' && (
+                <MuscleGroupPickerScreen selected={filters.muscles}
+                  onClose={back}
+                  onApply={(m) => { setFilters({ ...filters, muscles: m }); back(); }} />
+              )}
+              {screen === 'equipmentPicker' && (
+                <EquipmentPickerScreen selected={filters.equipment}
+                  onClose={back}
+                  onApply={(e) => { setFilters({ ...filters, equipment: e }); back(); }} />
+              )}
+              {screen === 'setEditor' && currentExercise && (
+                <SetEditorScreen exercise={currentExercise}
+                  onClose={back}
+                  onSave={saveExerciseEdit}
+                  onDelete={() => {
+                    removeExerciseFromWorkout(currentExerciseInstanceId);
+                    back();
+                  }} />
+              )}
+              {screen === 'plans' && (
+                <PlansScreen weekPlans={weekPlans}
+                  workoutCount={workouts.length}
+                  onNew={() => nav('nameWeekPlan')}
+                  onOpen={openWeekPlan}
+                  onDelete={deleteWeekPlan}
+                  onGoWorkouts={() => switchTab('home')} />
+              )}
+              {screen === 'nameWeekPlan' && (
+                <NameWeekPlanScreen existingCount={weekPlans.length}
+                  onCancel={() => setScreen('plans')}
+                  onCreate={createWeekPlan} />
+              )}
+              {screen === 'weekDetail' && currentWeekPlan && (
+                <WeekDetailScreen plan={currentWeekPlan}
+                  workouts={workouts}
+                  weekCount={weekPlans.length}
+                  onBack={() => setScreen('plans')}
+                  onAddSlot={addSlot}
+                  onRemoveSlot={removeSlot}
+                  onUpdateSlot={updateSlot}
+                  onOpenWorkout={openWorkoutFromSlot}
+                  onCopyToNext={copyWeekToNext} />
+              )}
+            </div>
+            {showTabBar && <TabBar active={screen} onNav={switchTab} />}
           </div>
         </div>
       </div>
