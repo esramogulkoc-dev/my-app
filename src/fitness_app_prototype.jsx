@@ -490,7 +490,7 @@ const summaryOfEx = (ex) => {
   return allSame ? `${ex.sets.length}×${reps} · ${kg}kg` : `${ex.sets.length} sets · varied`;
 };
 
-const SortableExerciseCard = ({ ex, onEdit, onRemove }) => {
+const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ex.instanceId });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -498,36 +498,79 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove }) => {
     opacity: isDragging ? 0.5 : 1,
     zIndex: isDragging ? 10 : 'auto',
   };
+  const isDone = !!ex.completedDate;
   return (
     <div ref={setNodeRef} style={style}
-      onClick={() => onEdit(ex.instanceId)}
-      className="card-bg rounded-xl p-3.5 flex items-center gap-3 tap-scale cursor-pointer touch-none">
-      <div className="w-11 h-11 rounded-lg bg-yellow-400/10 flex items-center justify-center border border-yellow-400/20">
-        <span className="font-display text-yellow-400 text-xs tracking-wider">{ex.slotLabel}</span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="font-display text-sm tracking-wider truncate">{ex.name}</div>
-        <div className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5">
-          <span className="tabular-nums">{summaryOfEx(ex)}</span>
-          <span className="text-zinc-700">·</span>
-          <span className="text-zinc-500">{ex.sets[0]?.rest || 60}s rest</span>
+      className={`card-bg rounded-xl p-3.5 touch-none ${isDone ? 'border-green-600/40' : ''}`}>
+      <div onClick={() => onEdit(ex.instanceId)} className="flex items-center gap-3 tap-scale cursor-pointer">
+        <div className={`w-11 h-11 rounded-lg flex items-center justify-center border ${
+          isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-400/10 border-yellow-400/20'
+        }`}>
+          {isDone ? (
+            <Check className="w-5 h-5 text-green-400" strokeWidth={3} />
+          ) : (
+            <span className="font-display text-yellow-400 text-xs tracking-wider">{ex.slotLabel}</span>
+          )}
         </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-display text-sm tracking-wider truncate">{ex.name}</div>
+          <div className="text-xs text-zinc-500 mt-0.5 flex items-center gap-1.5">
+            <span className="tabular-nums">{summaryOfEx(ex)}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="text-zinc-500">{ex.sets[0]?.rest || 60}s rest</span>
+          </div>
+        </div>
+        <button {...attributes} {...listeners}
+          onClick={(e) => e.stopPropagation()}
+          className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
+          aria-label="Reorder">
+          <GripVertical className="w-3.5 h-3.5 text-zinc-500"/>
+        </button>
+        <button onClick={(e) => { e.stopPropagation(); onRemove(ex.instanceId); }}
+          className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center tap-scale">
+          <X className="w-3.5 h-3.5 text-zinc-500"/>
+        </button>
       </div>
-      <button {...attributes} {...listeners}
-        onClick={(e) => e.stopPropagation()}
-        className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center cursor-grab active:cursor-grabbing touch-none"
-        aria-label="Reorder">
-        <GripVertical className="w-3.5 h-3.5 text-zinc-500"/>
-      </button>
-      <button onClick={(e) => { e.stopPropagation(); onRemove(ex.instanceId); }}
-        className="w-7 h-7 rounded-full bg-zinc-900 flex items-center justify-center tap-scale">
-        <X className="w-3.5 h-3.5 text-zinc-500"/>
-      </button>
+      <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2">
+        {isDone ? (
+          <>
+            <div className="flex-1 flex items-center gap-1.5 text-green-400 font-display text-xs tracking-wider">
+              <Check className="w-3.5 h-3.5" strokeWidth={3}/>
+              <span>DONE · {fmtDateShort(ex.completedDate)}</span>
+            </div>
+            <label className="cursor-pointer text-xs font-display tracking-wider text-zinc-500 hover:text-zinc-300 px-2 py-1 relative">
+              CHANGE
+              <input type="date" lang="en" value={ex.completedDate}
+                onChange={(e) => { if (e.target.value) onSetDate(ex.instanceId, e.target.value); }}
+                className="absolute inset-0 opacity-0 cursor-pointer"/>
+            </label>
+            <button onClick={() => onSetDate(ex.instanceId, null)}
+              className="text-xs font-display tracking-wider text-zinc-500 hover:text-red-400 px-2 py-1 tap-scale">
+              UNDO
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={() => onSetDate(ex.instanceId, todayISO())}
+              className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-green-600/10 border border-green-600/30 text-green-400 font-display text-xs tracking-wider tap-scale hover:bg-green-600/20">
+              <Check className="w-3.5 h-3.5" strokeWidth={3}/>
+              MARK DONE
+            </button>
+            <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 font-display text-xs tracking-wider tap-scale hover:text-white relative">
+              <Calendar className="w-3.5 h-3.5"/>
+              PICK DATE
+              <input type="date" lang="en"
+                onChange={(e) => { if (e.target.value) onSetDate(ex.instanceId, e.target.value); }}
+                className="absolute inset-0 opacity-0 cursor-pointer"/>
+            </label>
+          </>
+        )}
+      </div>
     </div>
   );
 };
 
-const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExercise, onRemoveExercise, onReorderExercises }) => {
+const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExercise, onRemoveExercise, onReorderExercises, onSetExerciseDate }) => {
   const numberedExercises = useMemo(() => {
     const counters = {};
     return workout.exercises.map(ex => {
@@ -592,7 +635,8 @@ const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExe
                 <div className="space-y-2.5">
                   {numberedExercises.map(ex => (
                     <SortableExerciseCard key={ex.instanceId} ex={ex}
-                      onEdit={onEditExercise} onRemove={onRemoveExercise} />
+                      onEdit={onEditExercise} onRemove={onRemoveExercise}
+                      onSetDate={onSetExerciseDate} />
                   ))}
                 </div>
               </SortableContext>
@@ -1127,7 +1171,7 @@ const NameWeekPlanScreen = ({ existingCount, onCancel, onCreate }) => {
 const fmtDateShort = (iso) => {
   if (!iso) return null;
   const d = new Date(iso);
-  return d.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' });
+  return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
 };
 
 const todayISO = () => new Date().toISOString().slice(0, 10);
@@ -1468,6 +1512,12 @@ export default function App() {
       : w));
   };
 
+  const setExerciseCompletedDate = (instanceId, date) => {
+    setWorkouts(workouts.map(w => w.id === currentWorkoutId
+      ? { ...w, exercises: w.exercises.map(e => e.instanceId === instanceId ? { ...e, completedDate: date } : e) }
+      : w));
+  };
+
   // --- Week Plan actions ---
   const createWeekPlan = (name) => {
     const p = { id: crypto.randomUUID(), name, createdAt: new Date().toISOString(), slots: [] };
@@ -1540,7 +1590,7 @@ export default function App() {
       <Styles />
       <div className="min-h-screen app-bg font-body text-white flex items-center justify-center p-0 md:p-6">
         <div className="w-full md:max-w-sm md:rounded-[2.5rem] md:border md:border-zinc-800 md:shadow-2xl overflow-hidden relative"
-             style={{ height: '100vh', maxHeight: '100vh' }}>
+             style={{ height: '100dvh', maxHeight: '100dvh' }}>
           <div className="h-full flex flex-col bg-black">
             <div className="flex-1 min-h-0 overflow-hidden">
               {screen === 'home' && (
@@ -1562,7 +1612,8 @@ export default function App() {
                   onAddExercise={() => { setFilters({ muscles: [], equipment: [], bodyweight: false }); nav('selectExercises'); }}
                   onEditExercise={(id) => { setCurrentExerciseInstanceId(id); nav('setEditor'); }}
                   onRemoveExercise={removeExerciseFromWorkout}
-                  onReorderExercises={reorderExercises} />
+                  onReorderExercises={reorderExercises}
+                  onSetExerciseDate={setExerciseCompletedDate} />
               )}
               {screen === 'selectExercises' && (
                 <SelectExercisesScreen
