@@ -534,13 +534,9 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onUpdateDates }) => {
           : isPlanned ? 'bg-blue-500/10 border-blue-500/30'
           : 'bg-yellow-400/10 border-yellow-400/20'
         }`}>
-          {isDone ? (
-            <Check className="w-5 h-5 text-green-400" strokeWidth={3} />
-          ) : isPlanned ? (
-            <Calendar className="w-4 h-4 text-blue-400" />
-          ) : (
-            <span className="font-display text-yellow-400 text-xs tracking-wider">{ex.slotLabel}</span>
-          )}
+          <span className={`font-display text-xs tracking-wider ${
+            isDone ? 'text-green-400' : isPlanned ? 'text-blue-400' : 'text-yellow-400'
+          }`}>{ex.slotLabel}</span>
         </div>
         <div className="flex-1 min-w-0">
           <div className="font-display text-sm tracking-wider truncate">{ex.name}</div>
