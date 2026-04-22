@@ -490,7 +490,7 @@ const summaryOfEx = (ex) => {
   return allSame ? `${ex.sets.length}×${reps} · ${kg}kg` : `${ex.sets.length} sets · varied`;
 };
 
-const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
+const SortableExerciseCard = ({ ex, onEdit, onRemove, onUpdateDates }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: ex.instanceId });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -499,6 +499,7 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
     zIndex: isDragging ? 10 : 'auto',
   };
   const isDone = !!ex.completedDate;
+  const isPlanned = !isDone && !!ex.plannedDate;
   const dateInputRef = useRef(null);
   const openDatePicker = (e) => {
     e.stopPropagation();
@@ -510,15 +511,33 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
     input.focus();
     input.click();
   };
+  const onPickedDate = (value) => {
+    if (!value) return;
+    if (isDone) onUpdateDates(ex.instanceId, { completedDate: value });
+    else onUpdateDates(ex.instanceId, { plannedDate: value, completedDate: null });
+  };
+  const markDone = (e) => {
+    e.stopPropagation();
+    onUpdateDates(ex.instanceId, { completedDate: todayISO(), plannedDate: null });
+  };
+  const clearAll = (e) => {
+    e.stopPropagation();
+    onUpdateDates(ex.instanceId, { completedDate: null, plannedDate: null });
+  };
+  const borderClass = isDone ? 'border-green-600/40' : isPlanned ? 'border-blue-600/40' : '';
   return (
     <div ref={setNodeRef} style={style}
-      className={`card-bg rounded-xl p-3.5 ${isDone ? 'border-green-600/40' : ''}`}>
+      className={`card-bg rounded-xl p-3.5 ${borderClass}`}>
       <div onClick={() => onEdit(ex.instanceId)} className="flex items-center gap-3 tap-scale cursor-pointer">
         <div className={`w-11 h-11 rounded-lg flex items-center justify-center border ${
-          isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-400/10 border-yellow-400/20'
+          isDone ? 'bg-green-500/10 border-green-500/30'
+          : isPlanned ? 'bg-blue-500/10 border-blue-500/30'
+          : 'bg-yellow-400/10 border-yellow-400/20'
         }`}>
           {isDone ? (
             <Check className="w-5 h-5 text-green-400" strokeWidth={3} />
+          ) : isPlanned ? (
+            <Calendar className="w-4 h-4 text-blue-400" />
           ) : (
             <span className="font-display text-yellow-400 text-xs tracking-wider">{ex.slotLabel}</span>
           )}
@@ -542,9 +561,10 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
           <X className="w-3.5 h-3.5 text-zinc-500"/>
         </button>
       </div>
-      <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2">
-        <input ref={dateInputRef} type="date" lang="en" value={ex.completedDate || ''}
-          onChange={(e) => { if (e.target.value) onSetDate(ex.instanceId, e.target.value); }}
+      <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2 flex-wrap">
+        <input ref={dateInputRef} type="date" lang="en"
+          value={(isDone ? ex.completedDate : ex.plannedDate) || ''}
+          onChange={(e) => onPickedDate(e.target.value)}
           onClick={(e) => e.stopPropagation()}
           style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
           tabIndex={-1} aria-hidden="true"/>
@@ -558,14 +578,34 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
               className="text-xs font-display tracking-wider text-zinc-500 hover:text-zinc-300 px-2 py-1 tap-scale">
               CHANGE
             </button>
-            <button onClick={(e) => { e.stopPropagation(); onSetDate(ex.instanceId, null); }}
+            <button onClick={clearAll}
               className="text-xs font-display tracking-wider text-zinc-500 hover:text-red-400 px-2 py-1 tap-scale">
               UNDO
             </button>
           </>
+        ) : isPlanned ? (
+          <>
+            <div className="flex-1 flex items-center gap-1.5 text-blue-400 font-display text-xs tracking-wider">
+              <Calendar className="w-3.5 h-3.5"/>
+              <span>PLANNED · {fmtDateShort(ex.plannedDate)}</span>
+            </div>
+            <button onClick={markDone}
+              className="flex items-center gap-1 py-1 px-2 rounded-lg bg-green-600/10 border border-green-600/30 text-green-400 font-display text-xs tracking-wider tap-scale">
+              <Check className="w-3 h-3" strokeWidth={3}/>
+              DONE
+            </button>
+            <button onClick={openDatePicker}
+              className="text-xs font-display tracking-wider text-zinc-500 hover:text-zinc-300 px-2 py-1 tap-scale">
+              CHANGE
+            </button>
+            <button onClick={clearAll}
+              className="text-xs font-display tracking-wider text-zinc-500 hover:text-red-400 px-2 py-1 tap-scale">
+              CLEAR
+            </button>
+          </>
         ) : (
           <>
-            <button onClick={(e) => { e.stopPropagation(); onSetDate(ex.instanceId, todayISO()); }}
+            <button onClick={markDone}
               className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-green-600/10 border border-green-600/30 text-green-400 font-display text-xs tracking-wider tap-scale hover:bg-green-600/20">
               <Check className="w-3.5 h-3.5" strokeWidth={3}/>
               MARK DONE
@@ -582,7 +622,7 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
   );
 };
 
-const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExercise, onRemoveExercise, onReorderExercises, onSetExerciseDate }) => {
+const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExercise, onRemoveExercise, onReorderExercises, onUpdateExerciseDates }) => {
   const numberedExercises = useMemo(() => {
     const counters = {};
     return workout.exercises.map(ex => {
@@ -648,7 +688,7 @@ const WorkoutDetailScreen = ({ workout, onBack, onDone, onAddExercise, onEditExe
                   {numberedExercises.map(ex => (
                     <SortableExerciseCard key={ex.instanceId} ex={ex}
                       onEdit={onEditExercise} onRemove={onRemoveExercise}
-                      onSetDate={onSetExerciseDate} />
+                      onUpdateDates={onUpdateExerciseDates} />
                   ))}
                 </div>
               </SortableContext>
@@ -1524,9 +1564,9 @@ export default function App() {
       : w));
   };
 
-  const setExerciseCompletedDate = (instanceId, date) => {
+  const updateExerciseDates = (instanceId, updates) => {
     setWorkouts(workouts.map(w => w.id === currentWorkoutId
-      ? { ...w, exercises: w.exercises.map(e => e.instanceId === instanceId ? { ...e, completedDate: date } : e) }
+      ? { ...w, exercises: w.exercises.map(e => e.instanceId === instanceId ? { ...e, ...updates } : e) }
       : w));
   };
 
@@ -1625,7 +1665,7 @@ export default function App() {
                   onEditExercise={(id) => { setCurrentExerciseInstanceId(id); nav('setEditor'); }}
                   onRemoveExercise={removeExerciseFromWorkout}
                   onReorderExercises={reorderExercises}
-                  onSetExerciseDate={setExerciseCompletedDate} />
+                  onUpdateExerciseDates={updateExerciseDates} />
               )}
               {screen === 'selectExercises' && (
                 <SelectExercisesScreen
