@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { X, Plus, Search, ChevronDown, Minus, Check, ArrowLeft, Play, Trash2, Bell, GripVertical, Calendar, CalendarCheck, Copy, Dumbbell, CalendarDays } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
@@ -499,9 +499,20 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
     zIndex: isDragging ? 10 : 'auto',
   };
   const isDone = !!ex.completedDate;
+  const dateInputRef = useRef(null);
+  const openDatePicker = (e) => {
+    e.stopPropagation();
+    const input = dateInputRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+      try { input.showPicker(); return; } catch (err) { /* fall through */ }
+    }
+    input.focus();
+    input.click();
+  };
   return (
     <div ref={setNodeRef} style={style}
-      className={`card-bg rounded-xl p-3.5 touch-none ${isDone ? 'border-green-600/40' : ''}`}>
+      className={`card-bg rounded-xl p-3.5 ${isDone ? 'border-green-600/40' : ''}`}>
       <div onClick={() => onEdit(ex.instanceId)} className="flex items-center gap-3 tap-scale cursor-pointer">
         <div className={`w-11 h-11 rounded-lg flex items-center justify-center border ${
           isDone ? 'bg-green-500/10 border-green-500/30' : 'bg-yellow-400/10 border-yellow-400/20'
@@ -532,37 +543,38 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onSetDate }) => {
         </button>
       </div>
       <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center gap-2">
+        <input ref={dateInputRef} type="date" lang="en" value={ex.completedDate || ''}
+          onChange={(e) => { if (e.target.value) onSetDate(ex.instanceId, e.target.value); }}
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+          tabIndex={-1} aria-hidden="true"/>
         {isDone ? (
           <>
             <div className="flex-1 flex items-center gap-1.5 text-green-400 font-display text-xs tracking-wider">
               <Check className="w-3.5 h-3.5" strokeWidth={3}/>
               <span>DONE · {fmtDateShort(ex.completedDate)}</span>
             </div>
-            <label className="cursor-pointer text-xs font-display tracking-wider text-zinc-500 hover:text-zinc-300 px-2 py-1 relative">
+            <button onClick={openDatePicker}
+              className="text-xs font-display tracking-wider text-zinc-500 hover:text-zinc-300 px-2 py-1 tap-scale">
               CHANGE
-              <input type="date" lang="en" value={ex.completedDate}
-                onChange={(e) => { if (e.target.value) onSetDate(ex.instanceId, e.target.value); }}
-                className="absolute inset-0 opacity-0 cursor-pointer"/>
-            </label>
-            <button onClick={() => onSetDate(ex.instanceId, null)}
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); onSetDate(ex.instanceId, null); }}
               className="text-xs font-display tracking-wider text-zinc-500 hover:text-red-400 px-2 py-1 tap-scale">
               UNDO
             </button>
           </>
         ) : (
           <>
-            <button onClick={() => onSetDate(ex.instanceId, todayISO())}
+            <button onClick={(e) => { e.stopPropagation(); onSetDate(ex.instanceId, todayISO()); }}
               className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg bg-green-600/10 border border-green-600/30 text-green-400 font-display text-xs tracking-wider tap-scale hover:bg-green-600/20">
               <Check className="w-3.5 h-3.5" strokeWidth={3}/>
               MARK DONE
             </button>
-            <label className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 font-display text-xs tracking-wider tap-scale hover:text-white relative">
+            <button onClick={openDatePicker}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-zinc-400 font-display text-xs tracking-wider tap-scale hover:text-white">
               <Calendar className="w-3.5 h-3.5"/>
               PICK DATE
-              <input type="date" lang="en"
-                onChange={(e) => { if (e.target.value) onSetDate(ex.instanceId, e.target.value); }}
-                className="absolute inset-0 opacity-0 cursor-pointer"/>
-            </label>
+            </button>
           </>
         )}
       </div>
