@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Search, ChevronDown, ChevronRight, Minus, Check, ArrowLeft, MoreHorizontal, Play, Trash2, Bell, GripVertical, Calendar, CalendarCheck, Copy, Dumbbell, CalendarDays } from 'lucide-react';
+import { X, Plus, Search, ChevronDown, Minus, Check, ArrowLeft, Play, Trash2, Bell, GripVertical, Calendar, CalendarCheck, Copy, Dumbbell, CalendarDays } from 'lucide-react';
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
