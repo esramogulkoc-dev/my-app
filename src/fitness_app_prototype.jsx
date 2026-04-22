@@ -586,8 +586,7 @@ const SortableExerciseCard = ({ ex, onEdit, onRemove, onUpdateDates }) => {
               <span>PLANNED · {fmtDateShort(ex.plannedDate)}</span>
             </div>
             <button onClick={markDone}
-              className="flex items-center gap-1 py-1 px-2 rounded-lg bg-green-600/10 border border-green-600/30 text-green-400 font-display text-xs tracking-wider tap-scale">
-              <Check className="w-3 h-3" strokeWidth={3}/>
+              className="text-xs font-display tracking-wider text-zinc-500 hover:text-green-400 px-2 py-1 tap-scale">
               DONE
             </button>
             <button onClick={openDatePicker}
